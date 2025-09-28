@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>To-Do App</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        h1 { color: #333; }
+        ul { list-style-type: none; padding: 0; }
+        li { margin: 8px 0; }
+        form { display: inline; }
+        input[type="text"], input[type="password"] { padding: 6px; margin: 4px; }
+        button { padding: 6px 10px; margin-left: 5px; }
+        .done { text-decoration: line-through; color: gray; }
+        .box { border: 1px solid #ccc; padding: 20px; width: 300px; }
+    </style>
+</head>
+<body>
+    {% if page == "login" %}
+        <div class="box">
+            <h1>Login</h1>
+            <form method="post" action="/login">
+                <input type="text" name="username" placeholder="Username" required><br>
+                <input type="password" name="password" placeholder="Password" required><br>
+                <button type="submit">Login</button>
+            </form>
+            <p>No account? <a href="/?page=register">Register here</a></p>
+        </div>
+
+    {% elif page == "register" %}
+        <div class="box">
+            <h1>Register</h1>
+            <form method="post" action="/register">
+                <input type="text" name="username" placeholder="Username" required><br>
+                <input type="password" name="password" placeholder="Password" required><br>
+                <button type="submit">Register</button>
+            </form>
+            <p>Already have an account? <a href="/">Login</a></p>
+        </div>
+
+    {% elif page == "home" %}
+        <h1>{{ username }}'s To-Do List</h1>
+        <a href="/logout">Logout</a>
+        <br><br>
+
+        <form action="/add" method="post">
+            <input type="text" name="task" placeholder="Enter a task" required>
+            <button type="submit">Add</button>
+        </form>
+
+        <ul>
+            {% for task in tasks %}
+            <li>
+                <span class="{% if task.done %}done{% endif %}">{{ task.text }}</span>
+                <form action="/toggle/{{ task.id }}" method="post">
+                    <button type="submit">{% if task.done %}Undo{% else %}Done{% endif %}</button>
+                </form>
+                <form action="/delete/{{ task.id }}" method="post">
+                    <button type="submit">Delete</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+</body>
+</html>
