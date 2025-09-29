@@ -1,7 +1,4 @@
 fastapi
 uvicorn
-jinja2
 motor
-python-multipart
-itsdangerous
-passlib[bcrypt]
+jinja2

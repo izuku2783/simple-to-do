@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>To-Do App</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-6">
+  <div class="w-full max-w-3xl bg-white rounded-xl shadow-md p-6">
+    
+    {% if page == "login" or page == "register" %}
+      <h1 class="text-2xl font-bold mb-4 text-center">🔐 {{ "Register" if page=="register" else "Login" }}</h1>
+
+      {% if page == "login" %}
+      <form method="post" action="/login" class="space-y-3">
+        <input type="text" name="username" placeholder="Username" class="w-full border p-2 rounded" required>
+        <input type="password" name="password" placeholder="Password" class="w-full border p-2 rounded" required>
+        <button type="submit" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Login</button>
+      </form>
+      <p class="text-center mt-4">No account? <a href="/?page=register" class="text-blue-500">Register here</a></p>
+      {% endif %}
+
+      {% if page == "register" %}
+      <form method="post" action="/register" class="space-y-3">
+        <input type="text" name="username" placeholder="Username" class="w-full border p-2 rounded" required>
+        <input type="password" name="password" placeholder="Password" class="w-full border p-2 rounded" required>
+        <button type="submit" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">Register</button>
+      </form>
+      <p class="text-center mt-4">Already have an account? <a href="/" class="text-blue-500">Login here</a></p>
+      {% endif %}
+
+    {% elif page == "home" %}
+      <h1 class="text-3xl font-bold text-center mb-6">✨ {{ username }}'s To-Do List</h1>
+
+      <!-- Stats -->
+      <div class="grid grid-cols-3 gap-4 mb-6 text-center">
+        <div class="p-4 bg-blue-100 rounded">
+          <p class="text-xl font-bold">{{ total }}</p>
+          <p class="text-sm">Total</p>
+        </div>
+        <div class="p-4 bg-green-100 rounded">
+          <p class="text-xl font-bold">{{ completed }}</p>
+          <p class="text-sm">Completed</p>
+        </div>
+        <div class="p-4 bg-red-100 rounded">
+          <p class="text-xl font-bold">{{ pending }}</p>
+          <p class="text-sm">Pending</p>
+        </div>
+      </div>
+
+      <!-- Add Task -->
+      <form action="/add" method="post" class="grid grid-cols-1 md:grid-cols-6 gap-2 mb-6">
+        <input type="text" name="task" placeholder="Enter task" class="border p-2 rounded col-span-2" required>
+        <select name="priority" class="border p-2 rounded">
+          <option>High</option>
+          <option selected>Medium</option>
+          <option>Low</option>
+        </select>
+        <input type="date" name="due_date" class="border p-2 rounded">
+        <select name="category" class="border p-2 rounded">
+          <option>General</option>
+          <option>Work</option>
+          <option>Personal</option>
+          <option>School</option>
+        </select>
+        <button type="submit" class="bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Add</button>
+      </form>
+
+      <!-- Search & Filter -->
+      <form action="/" method="get" class="flex gap-2 mb-6">
+        <input type="text" name="search" placeholder="Search..." class="flex-1 border p-2 rounded">
+        <select name="category" class="border p-2 rounded">
+          <option value="">All Categories</option>
+          <option>Work</option>
+          <option>Personal</option>
+          <option>School</option>
+          <option>General</option>
+        </select>
+        <button type="submit" class="bg-gray-500 text-white px-4 rounded hover:bg-gray-600">Filter</button>
+      </form>
+
+      <!-- Task List -->
+      <ul class="space-y-2">
+        {% for task in tasks %}
+        <li class="flex justify-between items-center bg-gray-50 p-3 rounded-lg shadow-sm">
+          <div>
+            <p class="{% if task.done %}line-through text-gray-400{% endif %} font-medium">{{ task.text }}</p>
+            <p class="text-sm text-gray-500">
+              Priority: {{ task.priority }} | Category: {{ task.category }}
+              {% if task.due_date %}| Due: {{ task.due_date }}{% endif %}
+            </p>
+          </div>
+          <div class="space-x-2">
+            <form action="/toggle/{{ task.id }}" method="post" class="inline">
+              <button class="px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600">{% if task.done %}Undo{% else %}Done{% endif %}</button>
+            </form>
+            <form action="/delete/{{ task.id }}" method="post" class="inline">
+              <button class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600">Delete</button>
+            </form>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <form action="/logout" method="post" class="mt-6">
+        <button class="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600">Logout</button>
+      </form>
+    {% endif %}
+  </div>
+</body>
+</html>
