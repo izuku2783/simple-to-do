@@ -1,65 +1,213 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>To-Do App</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        h1 { color: #333; }
-        ul { list-style-type: none; padding: 0; }
-        li { margin: 8px 0; }
-        form { display: inline; }
-        input[type="text"], input[type="password"] { padding: 6px; margin: 4px; }
-        button { padding: 6px 10px; margin-left: 5px; }
-        .done { text-decoration: line-through; color: gray; }
-        .box { border: 1px solid #ccc; padding: 20px; width: 300px; }
-    </style>
+  <meta charset="UTF-8">
+  <title>To-Do App</title>
+  <!-- ✅ Load Tailwind via CDN CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- FullCalendar -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/main.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/main.min.js"></script>
 </head>
-<body>
-    {% if page == "login" %}
-        <div class="box">
-            <h1>Login</h1>
-            <form method="post" action="/login">
-                <input type="text" name="username" placeholder="Username" required><br>
-                <input type="password" name="password" placeholder="Password" required><br>
-                <button type="submit">Login</button>
-            </form>
-            <p>No account? <a href="/?page=register">Register here</a></p>
-        </div>
 
-    {% elif page == "register" %}
-        <div class="box">
-            <h1>Register</h1>
-            <form method="post" action="/register">
-                <input type="text" name="username" placeholder="Username" required><br>
-                <input type="password" name="password" placeholder="Password" required><br>
-                <button type="submit">Register</button>
-            </form>
-            <p>Already have an account? <a href="/">Login</a></p>
-        </div>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-6">
+  <div class="w-full max-w-5xl bg-white rounded-xl shadow-md p-6">
+
+    {% if page == "login" or page == "register" %}
+      <h1 class="text-2xl font-bold mb-4 text-center">
+        🔐 {{ "Register" if page=="register" else "Login" }}
+      </h1>
+
+      {% if page == "login" %}
+      <form method="post" action="/login" class="space-y-3">
+        <input type="text" name="username" placeholder="Username" class="w-full border p-2 rounded" required>
+        <input type="password" name="password" placeholder="Password" class="w-full border p-2 rounded" required>
+        <button type="submit" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Login</button>
+      </form>
+      <p class="text-center mt-4">No account? <a href="/?page=register" class="text-blue-500">Register here</a></p>
+      {% endif %}
+
+      {% if page == "register" %}
+      <form method="post" action="/register" class="space-y-3">
+        <input type="text" name="username" placeholder="Username" class="w-full border p-2 rounded" required>
+        <input type="password" name="password" placeholder="Password" class="w-full border p-2 rounded" required>
+        <button type="submit" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">Register</button>
+      </form>
+      <p class="text-center mt-4">Already have an account? <a href="/" class="text-blue-500">Login here</a></p>
+      {% endif %}
 
     {% elif page == "home" %}
-        <h1>{{ username }}'s To-Do List</h1>
-        <a href="/logout">Logout</a>
-        <br><br>
+      <h1 class="text-3xl font-bold text-center mb-6">✨ {{ username }}'s To-Do Dashboard</h1>
 
-        <form action="/add" method="post">
-            <input type="text" name="task" placeholder="Enter a task" required>
-            <button type="submit">Add</button>
+      <!-- Tabs -->
+      <div class="flex justify-center space-x-4 mb-6">
+        <button onclick="showTab('tasks')" class="px-4 py-2 bg-blue-500 text-white rounded">Tasks</button>
+        <button onclick="showTab('calendar')" class="px-4 py-2 bg-gray-500 text-white rounded">Calendar</button>
+      </div>
+
+      <!-- TASKS TAB -->
+      <div id="tasksTab">
+        <!-- Stats -->
+        <div class="grid grid-cols-3 gap-4 mb-6 text-center">
+          <div class="p-4 bg-blue-100 rounded">
+            <p class="text-xl font-bold">{{ total }}</p>
+            <p class="text-sm">Total</p>
+          </div>
+          <div class="p-4 bg-green-100 rounded">
+            <p class="text-xl font-bold">{{ completed }}</p>
+            <p class="text-sm">Completed</p>
+          </div>
+          <div class="p-4 bg-red-100 rounded">
+            <p class="text-xl font-bold">{{ pending }}</p>
+            <p class="text-sm">Pending</p>
+          </div>
+        </div>
+
+        <!-- Chart -->
+        <canvas id="taskChart" class="mb-6"></canvas>
+        <script>
+          const ctx = document.getElementById('taskChart');
+          new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+              labels: ['Completed', 'Pending'],
+              datasets: [{
+                data: [{{ completed }}, {{ pending }}],
+                backgroundColor: ['#10B981', '#EF4444']
+              }]
+            }
+          });
+        </script>
+
+        <!-- Add Task -->
+        <form action="/add" method="post" class="grid grid-cols-1 md:grid-cols-7 gap-2 mb-6">
+          <input type="text" name="task" placeholder="Enter task" class="border p-2 rounded col-span-2" required>
+          <select name="priority" class="border p-2 rounded">
+            <option>High</option><option selected>Medium</option><option>Low</option>
+          </select>
+          <input type="date" name="due_date" class="border p-2 rounded">
+          <select name="category" class="border p-2 rounded">
+            <option>General</option><option>Work</option><option>Personal</option><option>School</option>
+          </select>
+          <select name="recurring" class="border p-2 rounded">
+            <option>None</option><option>Daily</option><option>Weekly</option><option>Monthly</option>
+          </select>
+          <button type="submit" class="bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Add</button>
         </form>
 
-        <ul>
-            {% for task in tasks %}
-            <li>
-                <span class="{% if task.done %}done{% endif %}">{{ task.text }}</span>
-                <form action="/toggle/{{ task.id }}" method="post">
-                    <button type="submit">{% if task.done %}Undo{% else %}Done{% endif %}</button>
+        <!-- Task List -->
+        <ul class="space-y-4">
+          {% for task in tasks %}
+          <li class="bg-gray-50 p-3 rounded-lg shadow-sm">
+            <div class="flex justify-between items-center">
+              <div>
+                <p class="{% if task.done %}line-through text-gray-400{% endif %} font-medium">{{ task.text }}</p>
+                <p class="text-sm text-gray-500">
+                  Priority: {{ task.priority }} | Category: {{ task.category }}
+                  {% if task.due_date %}| Due: {{ task.due_date }}{% endif %}
+                  {% if task.recurring != "None" %}| Recurs: {{ task.recurring }}{% endif %}
+                </p>
+              </div>
+              <div class="space-x-2">
+                <form action="/toggle/{{ task.id }}" method="post" class="inline">
+                  <button class="px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600">
+                    {% if task.done %}Undo{% else %}Done{% endif %}
+                  </button>
                 </form>
-                <form action="/delete/{{ task.id }}" method="post">
-                    <button type="submit">Delete</button>
+                <form action="/delete/{{ task.id }}" method="post" class="inline">
+                  <button class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600">Delete</button>
                 </form>
-            </li>
-            {% endfor %}
+              </div>
+            </div>
+            <!-- Subtasks -->
+            <ul class="ml-6 mt-2 space-y-1">
+              {% for sub in task.subtasks %}
+              <li>
+                <form action="/toggle_subtask/{{ task.id }}/{{ loop.index0 }}" method="post" class="inline">
+                  <button class="text-xs {% if sub.done %}line-through text-gray-400{% endif %}">
+                    {{ sub.text }}
+                  </button>
+                </form>
+              </li>
+              {% endfor %}
+            </ul>
+            <form action="/add_subtask/{{ task.id }}" method="post" class="mt-2 flex gap-2">
+              <input type="text" name="subtask" placeholder="Add subtask" class="border p-1 rounded flex-1">
+              <button type="submit" class="bg-gray-300 px-2 rounded">+</button>
+            </form>
+          </li>
+          {% endfor %}
         </ul>
+
+        <!-- Export -->
+        <div class="flex gap-2 mt-6">
+          <a href="/export_excel" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">Export Excel</a>
+          <a href="/export_pdf" class="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600">Export PDF</a>
+        </div>
+
+        <form action="/logout" method="post" class="mt-6">
+          <button class="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600">Logout</button>
+        </form>
+      </div>
+
+      <!-- CALENDAR TAB -->
+      <div id="calendarTab" class="hidden">
+        <div id="calendar"></div>
+      </div>
+
+      <!-- Task Modal -->
+      <div id="taskModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg p-6 w-96">
+          <h2 id="modalTitle" class="text-xl font-bold mb-2"></h2>
+          <p id="modalDetails" class="text-sm text-gray-600 mb-4"></p>
+          <button onclick="closeModal()" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Close</button>
+        </div>
+      </div>
+
+      <script>
+        function showTab(tab) {
+          document.getElementById('tasksTab').classList.add('hidden');
+          document.getElementById('calendarTab').classList.add('hidden');
+          if (tab === 'tasks') {
+            document.getElementById('tasksTab').classList.remove('hidden');
+          } else {
+            document.getElementById('calendarTab').classList.remove('hidden');
+            loadCalendar();
+          }
+        }
+
+        let calendarLoaded = false;
+        function loadCalendar() {
+          if (calendarLoaded) return;
+          var calendarEl = document.getElementById('calendar');
+          var calendar = new FullCalendar.Calendar(calendarEl, {
+            initialView: 'dayGridMonth',
+            events: '/calendar',
+            eventClick: function(info) {
+              fetch(`/task/${info.event.id}`)
+                .then(res => res.json())
+                .then(data => {
+                  document.getElementById('modalTitle').innerText = data.text;
+                  document.getElementById('modalDetails').innerText =
+                    `Priority: ${data.priority}, Category: ${data.category}, Due: ${data.due_date}, Recurring: ${data.recurring}`;
+                  document.getElementById('taskModal').classList.remove('hidden');
+                });
+            },
+            height: 600
+          });
+          calendar.render();
+          calendarLoaded = true;
+        }
+
+        function closeModal() {
+          document.getElementById('taskModal').classList.add('hidden');
+        }
+      </script>
     {% endif %}
+  </div>
 </body>
 </html>
