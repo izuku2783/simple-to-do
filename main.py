@@ -1,16 +1,23 @@
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-import uvicorn, os, pickle, json, hashlib
+import os
+import json
+import hashlib
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from datetime import datetime
 
 from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from passlib.context import CryptContext
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
+
+# Password Hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ✅ MongoDB
 MONGO_URI = os.environ.get("MONGO_URI", "your-mongodb-atlas-uri")
@@ -32,24 +39,29 @@ def get_google_flow(request: Request):
     if not creds_json:
         raise RuntimeError("Missing GOOGLE_CREDENTIALS env var")
     creds_data = json.loads(creds_json)
+    
+    # Correctly determine the redirect URI scheme
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    redirect_uri = f"{scheme}://{request.url.netloc}{REDIRECT_PATH}"
+
     return Flow.from_client_config(
         creds_data,
         scopes=SCOPES,
-        redirect_uri=f"{request.url.scheme}://{request.url.hostname}{REDIRECT_PATH}"
+        redirect_uri=redirect_uri
     )
 
 # 🔑 Token helpers
 async def save_token(user_id, creds):
     await users_collection.update_one(
         {"_id": user_id},
-        {"$set": {"google_creds": pickle.dumps(creds)}},
+        {"$set": {"google_creds": json.loads(creds.to_json())}},
         upsert=True
     )
 
 async def load_token(user_id):
     user = await users_collection.find_one({"_id": user_id})
     if user and "google_creds" in user:
-        return pickle.loads(user["google_creds"])
+        return Credentials.from_authorized_user_info(user["google_creds"])
     return None
 
 def get_current_user(request: Request):
@@ -60,12 +72,19 @@ def get_current_user(request: Request):
 async def login_google(request: Request):
     flow = get_google_flow(request)
     auth_url, state = flow.authorization_url(access_type="offline", include_granted_scopes="true")
+    # Store the state in the session to verify on callback
+    request.session['state'] = state
     return RedirectResponse(auth_url)
 
 @app.get(REDIRECT_PATH)
-async def auth_callback(request: Request, response: Response):
+async def auth_callback(request: Request):
+    # Verify the state to prevent CSRF attacks
+    state = request.session.pop('state', '')
+    if state != request.query_params.get('state'):
+        return HTMLResponse("<h3>State mismatch. Please try again.</h3>", status_code=400)
+
     flow = get_google_flow(request)
-    flow.fetch_token(authorization_response=str(request.url))
+    flow.fetch_token(code=request.query_params.get('code'))
     creds = flow.credentials
 
     service = build("oauth2", "v2", credentials=creds)
@@ -81,12 +100,13 @@ async def auth_callback(request: Request, response: Response):
 # ✅ Username/Password Login
 @app.post("/login")
 async def login(response: Response, username: str = Form(...), password: str = Form(...)):
-    hashed_pw = hashlib.sha256(password.encode()).hexdigest()
     user = await users_collection.find_one({"_id": username})
 
     if not user:
+        # Hash the password before storing
+        hashed_pw = pwd_context.hash(password)
         await users_collection.insert_one({"_id": username, "password": hashed_pw})
-    elif user["password"] != hashed_pw:
+    elif not pwd_context.verify(password, user["password"]):
         return HTMLResponse("<h3>Invalid password</h3>", status_code=401)
 
     resp = RedirectResponse("/", status_code=302)
@@ -94,7 +114,7 @@ async def login(response: Response, username: str = Form(...), password: str = F
     return resp
 
 @app.post("/logout")
-async def logout(response: Response):
+async def logout():
     response = RedirectResponse("/", status_code=302)
     response.delete_cookie("username")
     return response
@@ -154,22 +174,25 @@ async def get_events(request: Request):
 
     creds = await load_token(username)
     if creds:
-        service = build("calendar", "v3", credentials=creds)
-        events_result = service.events().list(
-            calendarId="primary",
-            timeMin=datetime.utcnow().isoformat() + "Z",
-            maxResults=50,
-            singleEvents=True,
-            orderBy="startTime"
-        ).execute()
-        for e in events_result.get("items", []):
-            start = e["start"].get("date", e["start"].get("dateTime"))
-            if start:
-                events.append({
-                    "title": e.get("summary", "Google Event"),
-                    "start": start,
-                    "color": "#16a34a"
-                })
+        try:
+            service = build("calendar", "v3", credentials=creds)
+            events_result = service.events().list(
+                calendarId="primary",
+                timeMin=datetime.utcnow().isoformat() + "Z",
+                maxResults=50,
+                singleEvents=True,
+                orderBy="startTime"
+            ).execute()
+            for e in events_result.get("items", []):
+                start = e["start"].get("date", e["start"].get("dateTime"))
+                if start:
+                    events.append({
+                        "title": e.get("summary", "Google Event"),
+                        "start": start,
+                        "color": "#16a34a"
+                    })
+        except Exception as e:
+            print(f"Error fetching Google Calendar events: {e}")
 
     return JSONResponse(events)
 
@@ -198,17 +221,20 @@ async def add_task(request: Request, task: str = Form(...), priority: str = Form
 
     creds = await load_token(username)
     if creds and due_date:
-        service = build("calendar", "v3", credentials=creds)
-        event = {
-            "summary": task,
-            "description": f"Priority: {priority}\nCategory: {category}\nSubtasks: {', '.join([s['text'] for s in subtasks_list])}",
-            "start": {"date": due_date},
-            "end": {"date": due_date},
-        }
-        if recurring != "None":
-            freq = recurring.upper()
-            event["recurrence"] = [f"RRULE:FREQ={freq}"]
-        service.events().insert(calendarId="primary", body=event).execute()
+        try:
+            service = build("calendar", "v3", credentials=creds)
+            event = {
+                "summary": task,
+                "description": f"Priority: {priority}\nCategory: {category}\nSubtasks: {', '.join([s['text'] for s in subtasks_list])}",
+                "start": {"date": due_date},
+                "end": {"date": due_date},
+            }
+            if recurring != "None":
+                freq = recurring.upper()
+                event["recurrence"] = [f"RRULE:FREQ={freq}"]
+            service.events().insert(calendarId="primary", body=event).execute()
+        except Exception as e:
+            print(f"Error creating Google Calendar event: {e}")
 
     return RedirectResponse("/", status_code=302)
 
@@ -236,6 +262,3 @@ async def toggle_subtask(task_id: str, sub_index: int):
         await tasks_collection.update_one({"_id": ObjectId(task_id)}, {"$set": {"subtasks": subtasks}})
 
     return RedirectResponse("/", status_code=302)
-
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
