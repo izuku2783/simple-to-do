@@ -1,23 +1,47 @@
+import logging
+import os
+import json
+from datetime import datetime, timezone
+from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
 from fastapi import FastAPI, Form, Request, Response, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-import os
-import json
-from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
-from datetime import datetime, timezone
-
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from passlib.context import CryptContext
 
-# ✅ Environment Variable Check
-SECRET_KEY = os.environ.get("SECRET_KEY")
-if not SECRET_KEY:
-    raise RuntimeError("Missing SECRET_KEY env var. Please set it for session management.")
+# --- Step 1: Configure Logging ---
+# This sets up a logger that will print detailed messages to the console.
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
+logger.info("Application startup sequence initiated.")
+
+# --- Step 2: Environment Variable Loading & Validation ---
+try:
+    logger.info("Loading SECRET_KEY...")
+    SECRET_KEY = os.environ["SECRET_KEY"]
+    logger.info("SECRET_KEY loaded successfully.")
+
+    logger.info("Loading MONGO_URI...")
+    MONGO_URI = os.environ["MONGO_URI"]
+    logger.info("MONGO_URI loaded successfully.")
+
+    logger.info("Loading GOOGLE_CREDENTIALS...")
+    GOOGLE_CREDENTIALS = os.environ["GOOGLE_CREDENTIALS"]
+    # Validate that GOOGLE_CREDENTIALS is valid JSON
+    json.loads(GOOGLE_CREDENTIALS)
+    logger.info("GOOGLE_CREDENTIALS loaded and validated as JSON successfully.")
+
+except KeyError as e:
+    logger.critical(f"CRITICAL ERROR: Environment variable {e} is not set. Application cannot start.")
+    raise
+except json.JSONDecodeError as e:
+    logger.critical(f"CRITICAL ERROR: GOOGLE_CREDENTIALS is not valid JSON. Error: {e}. Application cannot start.")
+    raise
 
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
@@ -26,15 +50,24 @@ templates = Jinja2Templates(directory="templates")
 # Password Hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# ✅ MongoDB
-MONGO_URI = os.environ.get("MONGO_URI", "your-mongodb-atlas-uri")
-client = AsyncIOMotorClient(MONGO_URI)
-db = client["todo_app"]
-users_collection = db["users"]
-tasks_collection = db["tasks"]
-projects_collection = db["projects"]
+# --- Step 3: MongoDB Connection ---
+db = None
+try:
+    logger.info("Attempting to connect to MongoDB...")
+    client = AsyncIOMotorClient(MONGO_URI)
+    # The ismaster command is cheap and does not require auth. It's a quick way to check server availability.
+    client.admin.command('ismaster')
+    db = client["todo_app"]
+    users_collection = db["users"]
+    tasks_collection = db["tasks"]
+    projects_collection = db["projects"]
+    logger.info("MongoDB connection successful. Collections are ready.")
+except Exception as e:
+    logger.critical(f"CRITICAL ERROR: Failed to connect to MongoDB. Error: {e}")
+    # We raise the exception to ensure the app stops if the DB is unavailable.
+    raise
 
-
+# (The rest of your application code remains the same)
 # ✅ Google OAuth
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
@@ -44,14 +77,9 @@ SCOPES = [
 REDIRECT_PATH = "/auth/callback"
 
 def get_google_flow(request: Request):
-    creds_json = os.environ.get("GOOGLE_CREDENTIALS")
-    if not creds_json:
-        raise RuntimeError("Missing GOOGLE_CREDENTIALS env var")
-    creds_data = json.loads(creds_json)
-
+    creds_data = json.loads(GOOGLE_CREDENTIALS)
     scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
     redirect_uri = f"{scheme}://{request.url.netloc}{REDIRECT_PATH}"
-
     return Flow.from_client_config(
         creds_data,
         scopes=SCOPES,
@@ -217,7 +245,7 @@ async def get_events(request: Request, user: dict = Depends(current_user)):
                         "color": "#16a34a"
                     })
         except Exception as e:
-            print(f"Error fetching Google Calendar events: {e}")
+            logger.error(f"Error fetching Google Calendar events: {e}")
 
     return JSONResponse(events)
 
@@ -267,7 +295,7 @@ async def add_task(request: Request, task: str = Form(...), priority: str = Form
                 event["recurrence"] = [f"RRULE:FREQ={freq}"]
             service.events().insert(calendarId="primary", body=event).execute()
         except Exception as e:
-            print(f"Error creating Google Calendar event: {e}")
+            logger.error(f"Error creating Google Calendar event: {e}")
 
     return RedirectResponse(f"/?project_id={project_id}" if project_id else "/", status_code=302)
 
@@ -334,3 +362,6 @@ async def update_settings(default_priority: str = Form(...), theme: str = Form(.
         {"$set": {"settings": {"default_priority": default_priority, "theme": theme}}}
     )
     return RedirectResponse("/", status_code=302)
+
+
+logger.info("Application startup sequence completed. Uvicorn is now running the app.")
