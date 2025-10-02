@@ -2,11 +2,8 @@ fastapi
 uvicorn
 motor
 jinja2
-google-auth
-google-auth-oauthlib
-google-auth-httplib2
-google-api-python-client
 python-multipart
 passlib[bcrypt]
 starlette
 itsdangerous
+gunicorn
