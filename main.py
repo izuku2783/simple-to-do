@@ -66,7 +66,11 @@ except Exception as e:
     logger.critical(f"CRITICAL ERROR: Failed to connect to MongoDB. Error: {e}")
     # We raise the exception to ensure the app stops if the DB is unavailable.
     raise
-
+    
+# ✅ Health Check Endpoint for Render
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
 # (The rest of your application code remains the same)
 # ✅ Google OAuth
 SCOPES = [
