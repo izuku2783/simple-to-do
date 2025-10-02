@@ -1,8 +1,9 @@
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-import uvicorn, os, pickle, json
+import uvicorn, os, pickle, json, hashlib
 from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
 from datetime import datetime
 
 from google_auth_oauthlib.flow import Flow
@@ -11,14 +12,14 @@ from googleapiclient.discovery import build
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# ✅ MongoDB Connection
+# ✅ MongoDB
 MONGO_URI = os.environ.get("MONGO_URI", "your-mongodb-atlas-uri")
 client = AsyncIOMotorClient(MONGO_URI)
 db = client["todo_app"]
 users_collection = db["users"]
 tasks_collection = db["tasks"]
 
-# ✅ Google OAuth (load from env instead of file)
+# ✅ Google OAuth
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
     "openid", "https://www.googleapis.com/auth/userinfo.email",
@@ -31,14 +32,13 @@ def get_google_flow(request: Request):
     if not creds_json:
         raise RuntimeError("Missing GOOGLE_CREDENTIALS env var")
     creds_data = json.loads(creds_json)
-    flow = Flow.from_client_config(
+    return Flow.from_client_config(
         creds_data,
         scopes=SCOPES,
         redirect_uri=f"{request.url.scheme}://{request.url.hostname}{REDIRECT_PATH}"
     )
-    return flow
 
-# 🔑 Helpers for token storage
+# 🔑 Token helpers
 async def save_token(user_id, creds):
     await users_collection.update_one(
         {"_id": user_id},
@@ -60,7 +60,6 @@ def get_current_user(request: Request):
 async def login_google(request: Request):
     flow = get_google_flow(request)
     auth_url, state = flow.authorization_url(access_type="offline", include_granted_scopes="true")
-    request.session = {"state": state}
     return RedirectResponse(auth_url)
 
 @app.get(REDIRECT_PATH)
@@ -69,7 +68,6 @@ async def auth_callback(request: Request, response: Response):
     flow.fetch_token(authorization_response=str(request.url))
     creds = flow.credentials
 
-    # Get user profile
     service = build("oauth2", "v2", credentials=creds)
     user_info = service.userinfo().get().execute()
     email = user_info["email"]
@@ -79,6 +77,21 @@ async def auth_callback(request: Request, response: Response):
     response = RedirectResponse("/")
     response.set_cookie("username", email)
     return response
+
+# ✅ Username/Password Login
+@app.post("/login")
+async def login(response: Response, username: str = Form(...), password: str = Form(...)):
+    hashed_pw = hashlib.sha256(password.encode()).hexdigest()
+    user = await users_collection.find_one({"_id": username})
+
+    if not user:
+        await users_collection.insert_one({"_id": username, "password": hashed_pw})
+    elif user["password"] != hashed_pw:
+        return HTMLResponse("<h3>Invalid password</h3>", status_code=401)
+
+    resp = RedirectResponse("/", status_code=302)
+    resp.set_cookie("username", username)
+    return resp
 
 @app.post("/logout")
 async def logout(response: Response):
@@ -121,7 +134,7 @@ async def home(request: Request):
         "pending": pending
     })
 
-# ✅ API for FullCalendar → combine MongoDB + Google Calendar
+# ✅ Events API (for FullCalendar)
 @app.get("/events")
 async def get_events(request: Request):
     username = get_current_user(request)
@@ -130,17 +143,15 @@ async def get_events(request: Request):
 
     events = []
 
-    # Local tasks
     tasks_cursor = tasks_collection.find({"owner": username})
     async for t in tasks_cursor:
         if t.get("due_date"):
             events.append({
                 "title": t["text"],
                 "start": t["due_date"],
-                "color": "#2563eb"  # Tailwind blue
+                "color": "#2563eb" if not t["done"] else "#9ca3af"
             })
 
-    # Google Calendar events
     creds = await load_token(username)
     if creds:
         service = build("calendar", "v3", credentials=creds)
@@ -157,12 +168,12 @@ async def get_events(request: Request):
                 events.append({
                     "title": e.get("summary", "Google Event"),
                     "start": start,
-                    "color": "#16a34a"  # Tailwind green
+                    "color": "#16a34a"
                 })
 
     return JSONResponse(events)
 
-# ✅ Add Task (also push to Google Calendar)
+# ✅ Add Task
 @app.post("/add")
 async def add_task(request: Request, task: str = Form(...), priority: str = Form("Medium"),
                    due_date: str = Form(None), category: str = Form("General"), recurring: str = Form("None"),
@@ -183,7 +194,7 @@ async def add_task(request: Request, task: str = Form(...), priority: str = Form
         "subtasks": subtasks_list,
         "owner": username
     }
-    await tasks_collection.insert_one(new_task)
+    result = await tasks_collection.insert_one(new_task)
 
     creds = await load_token(username)
     if creds and due_date:
@@ -198,6 +209,31 @@ async def add_task(request: Request, task: str = Form(...), priority: str = Form
             freq = recurring.upper()
             event["recurrence"] = [f"RRULE:FREQ={freq}"]
         service.events().insert(calendarId="primary", body=event).execute()
+
+    return RedirectResponse("/", status_code=302)
+
+# ✅ Toggle Task Completion
+@app.post("/toggle/{task_id}")
+async def toggle_task(task_id: str):
+    task = await tasks_collection.find_one({"_id": ObjectId(task_id)})
+    if not task:
+        return JSONResponse({"error": "Task not found"}, status_code=404)
+
+    new_status = not task["done"]
+    await tasks_collection.update_one({"_id": ObjectId(task_id)}, {"$set": {"done": new_status}})
+    return RedirectResponse("/", status_code=302)
+
+# ✅ Toggle Subtask Completion
+@app.post("/toggle-sub/{task_id}/{sub_index}")
+async def toggle_subtask(task_id: str, sub_index: int):
+    task = await tasks_collection.find_one({"_id": ObjectId(task_id)})
+    if not task:
+        return JSONResponse({"error": "Task not found"}, status_code=404)
+
+    subtasks = task.get("subtasks", [])
+    if sub_index < len(subtasks):
+        subtasks[sub_index]["done"] = not subtasks[sub_index]["done"]
+        await tasks_collection.update_one({"_id": ObjectId(task_id)}, {"$set": {"subtasks": subtasks}})
 
     return RedirectResponse("/", status_code=302)
 
