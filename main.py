@@ -8,17 +8,25 @@ from bson import ObjectId
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# ✅ MongoDB
+# -------------------------
+# Configuration / MongoDB
+# -------------------------
 MONGO_URI = os.environ.get("MONGO_URI", "your-mongodb-atlas-uri")
 client = AsyncIOMotorClient(MONGO_URI)
 db = client["todo_app"]
 users_collection = db["users"]
 tasks_collection = db["tasks"]
 
+# -------------------------
+# Helpers
+# -------------------------
 def get_current_user(request: Request):
     return request.cookies.get("username")
 
-# ✅ Username/Password Login
+# -------------------------
+# Auth (username/password only)
+# - Auto signup if username not found.
+# -------------------------
 @app.post("/login")
 async def login(response: Response, username: str = Form(...), password: str = Form(...)):
     hashed_pw = hashlib.sha256(password.encode()).hexdigest()
@@ -39,7 +47,9 @@ async def logout(response: Response):
     response.delete_cookie("username")
     return response
 
-# ✅ Dashboard
+# -------------------------
+# Dashboard (list view, tag filtering)
+# -------------------------
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, tag: str = None):
     username = get_current_user(request)
@@ -51,8 +61,8 @@ async def home(request: Request, tag: str = None):
         query["tags"] = tag
 
     tasks = []
-    tasks_cursor = tasks_collection.find(query)
-    async for t in tasks_cursor:
+    cursor = tasks_collection.find(query)
+    async for t in cursor:
         tasks.append({
             "id": str(t["_id"]),
             "text": t["text"],
@@ -65,12 +75,12 @@ async def home(request: Request, tag: str = None):
             "tags": t.get("tags", [])
         })
 
-    # Collect all tags for filtering
+    # Collect all tags (for tag filters)
     all_tags = set()
-    cursor = tasks_collection.find({"owner": username})
-    async for t in cursor:
-        for tag_item in t.get("tags", []):
-            all_tags.add(tag_item)
+    cursor2 = tasks_collection.find({"owner": username})
+    async for t in cursor2:
+        for tg in t.get("tags", []):
+            all_tags.add(tg)
 
     total = len(tasks)
     completed = len([t for t in tasks if t["done"]])
@@ -85,32 +95,74 @@ async def home(request: Request, tag: str = None):
         "completed": completed,
         "pending": pending,
         "all_tags": sorted(list(all_tags)),
-        "active_tag": tag
+        "active_tag": tag or ""
     })
 
-# ✅ Events API
+# -------------------------
+# Events endpoint for calendar (returns id,title,start,color)
+# Accepts optional ?tag=... to filter events by tag
+# -------------------------
 @app.get("/events")
 async def get_events(request: Request):
     username = get_current_user(request)
     if not username:
         return JSONResponse([])
 
+    tag = request.query_params.get("tag")
+    query = {"owner": username}
+    if tag:
+        query["tags"] = tag
+
     events = []
-    tasks_cursor = tasks_collection.find({"owner": username})
-    async for t in tasks_cursor:
+    cursor = tasks_collection.find(query)
+    async for t in cursor:
         if t.get("due_date"):
             events.append({
+                "id": str(t["_id"]),
                 "title": t["text"],
                 "start": t["due_date"],
-                "color": "#2563eb" if not t["done"] else "#9ca3af"
+                "color": "#2563eb" if not t.get("done") else "#9ca3af"
             })
+
     return JSONResponse(events)
 
-# ✅ Add Task
+# -------------------------
+# Get single task (used by calendar modal)
+# -------------------------
+@app.get("/task/{task_id}")
+async def get_task(task_id: str, request: Request):
+    username = get_current_user(request)
+    if not username:
+        return JSONResponse({})
+
+    task = await tasks_collection.find_one({"_id": ObjectId(task_id), "owner": username})
+    if not task:
+        return JSONResponse({})
+
+    return JSONResponse({
+        "id": str(task["_id"]),
+        "text": task["text"],
+        "done": task["done"],
+        "priority": task["priority"],
+        "category": task["category"],
+        "due_date": task.get("due_date", ""),
+        "recurring": task.get("recurring", "None"),
+        "subtasks": task.get("subtasks", []),
+        "tags": task.get("tags", [])
+    })
+
+# -------------------------
+# Add Task (tags + subtasks supported)
+# -------------------------
 @app.post("/add")
-async def add_task(request: Request, task: str = Form(...), priority: str = Form("Medium"),
-                   due_date: str = Form(None), category: str = Form("General"),
-                   recurring: str = Form("None"), subtasks: str = Form(""), tags: str = Form("")):
+async def add_task(request: Request,
+                   task: str = Form(...),
+                   priority: str = Form("Medium"),
+                   due_date: str = Form(None),
+                   category: str = Form("General"),
+                   recurring: str = Form("None"),
+                   subtasks: str = Form(""),
+                   tags: str = Form("")):
     username = get_current_user(request)
     if not username:
         return RedirectResponse("/", status_code=302)
@@ -132,7 +184,9 @@ async def add_task(request: Request, task: str = Form(...), priority: str = Form
     await tasks_collection.insert_one(new_task)
     return RedirectResponse("/", status_code=302)
 
-# ✅ Add Subtask Later
+# -------------------------
+# Add subtask AFTER creation
+# -------------------------
 @app.post("/add-subtask/{task_id}")
 async def add_subtask(task_id: str, subtask: str = Form(...)):
     task = await tasks_collection.find_one({"_id": ObjectId(task_id)})
@@ -144,7 +198,9 @@ async def add_subtask(task_id: str, subtask: str = Form(...)):
     await tasks_collection.update_one({"_id": ObjectId(task_id)}, {"$set": {"subtasks": subtasks}})
     return RedirectResponse("/", status_code=302)
 
-# ✅ Toggle Task Completion
+# -------------------------
+# Toggle task completion
+# -------------------------
 @app.post("/toggle/{task_id}")
 async def toggle_task(task_id: str):
     task = await tasks_collection.find_one({"_id": ObjectId(task_id)})
@@ -155,7 +211,9 @@ async def toggle_task(task_id: str):
     await tasks_collection.update_one({"_id": ObjectId(task_id)}, {"$set": {"done": new_status}})
     return RedirectResponse("/", status_code=302)
 
-# ✅ Toggle Subtask Completion
+# -------------------------
+# Toggle subtask completion
+# -------------------------
 @app.post("/toggle-sub/{task_id}/{sub_index}")
 async def toggle_subtask(task_id: str, sub_index: int):
     task = await tasks_collection.find_one({"_id": ObjectId(task_id)})
@@ -163,17 +221,22 @@ async def toggle_subtask(task_id: str, sub_index: int):
         return JSONResponse({"error": "Task not found"}, status_code=404)
 
     subtasks = task.get("subtasks", [])
-    if sub_index < len(subtasks):
+    if 0 <= sub_index < len(subtasks):
         subtasks[sub_index]["done"] = not subtasks[sub_index]["done"]
         await tasks_collection.update_one({"_id": ObjectId(task_id)}, {"$set": {"subtasks": subtasks}})
 
     return RedirectResponse("/", status_code=302)
 
-# ✅ Delete Task
+# -------------------------
+# Delete a task
+# -------------------------
 @app.post("/delete/{task_id}")
 async def delete_task(task_id: str):
     await tasks_collection.delete_one({"_id": ObjectId(task_id)})
     return RedirectResponse("/", status_code=302)
 
+# -------------------------
+# Run
+# -------------------------
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
