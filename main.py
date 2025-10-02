@@ -41,13 +41,17 @@ async def logout(response: Response):
 
 # ✅ Dashboard
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
+async def home(request: Request, tag: str = None):
     username = get_current_user(request)
     if not username:
         return templates.TemplateResponse("index.html", {"request": request, "page": "login"})
 
+    query = {"owner": username}
+    if tag:
+        query["tags"] = tag
+
     tasks = []
-    tasks_cursor = tasks_collection.find({"owner": username})
+    tasks_cursor = tasks_collection.find(query)
     async for t in tasks_cursor:
         tasks.append({
             "id": str(t["_id"]),
@@ -57,8 +61,16 @@ async def home(request: Request):
             "category": t["category"],
             "due_date": t.get("due_date", ""),
             "recurring": t.get("recurring", "None"),
-            "subtasks": t.get("subtasks", [])
+            "subtasks": t.get("subtasks", []),
+            "tags": t.get("tags", [])
         })
+
+    # Collect all tags for filtering
+    all_tags = set()
+    cursor = tasks_collection.find({"owner": username})
+    async for t in cursor:
+        for tag_item in t.get("tags", []):
+            all_tags.add(tag_item)
 
     total = len(tasks)
     completed = len([t for t in tasks if t["done"]])
@@ -71,7 +83,9 @@ async def home(request: Request):
         "tasks": tasks,
         "total": total,
         "completed": completed,
-        "pending": pending
+        "pending": pending,
+        "all_tags": sorted(list(all_tags)),
+        "active_tag": tag
     })
 
 # ✅ Events API
@@ -96,12 +110,13 @@ async def get_events(request: Request):
 @app.post("/add")
 async def add_task(request: Request, task: str = Form(...), priority: str = Form("Medium"),
                    due_date: str = Form(None), category: str = Form("General"),
-                   recurring: str = Form("None"), subtasks: str = Form("")):
+                   recurring: str = Form("None"), subtasks: str = Form(""), tags: str = Form("")):
     username = get_current_user(request)
     if not username:
         return RedirectResponse("/", status_code=302)
 
     subtasks_list = [{"text": s.strip(), "done": False} for s in subtasks.split(",") if s.strip()]
+    tags_list = [t.strip() for t in tags.split(",") if t.strip()]
 
     new_task = {
         "text": task,
@@ -111,9 +126,22 @@ async def add_task(request: Request, task: str = Form(...), priority: str = Form
         "due_date": due_date if due_date else None,
         "recurring": recurring,
         "subtasks": subtasks_list,
+        "tags": tags_list,
         "owner": username
     }
     await tasks_collection.insert_one(new_task)
+    return RedirectResponse("/", status_code=302)
+
+# ✅ Add Subtask Later
+@app.post("/add-subtask/{task_id}")
+async def add_subtask(task_id: str, subtask: str = Form(...)):
+    task = await tasks_collection.find_one({"_id": ObjectId(task_id)})
+    if not task:
+        return JSONResponse({"error": "Task not found"}, status_code=404)
+
+    subtasks = task.get("subtasks", [])
+    subtasks.append({"text": subtask, "done": False})
+    await tasks_collection.update_one({"_id": ObjectId(task_id)}, {"$set": {"subtasks": subtasks}})
     return RedirectResponse("/", status_code=302)
 
 # ✅ Toggle Task Completion
