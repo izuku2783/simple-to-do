@@ -7,22 +7,22 @@
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.js"></script>
 </head>
-<body class="bg-gray-100 flex items-center justify-center min-h-screen p-6">
-  <div class="w-full max-w-4xl bg-white shadow rounded p-6">
+<body class="bg-gradient-to-r from-purple-500 via-pink-500 to-yellow-500 min-h-screen flex items-center justify-center p-6">
+  <div class="w-full max-w-5xl bg-white shadow-2xl rounded-xl p-6">
     {% if page == "login" %}
-      <h1 class="text-2xl font-bold mb-4 text-center">🔐 Login</h1>
+      <h1 class="text-3xl font-extrabold mb-6 text-center text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-600">🔐 Login</h1>
       <form action="/login" method="post" class="mb-4">
-        <input type="text" name="username" placeholder="Username" class="border p-2 w-full rounded mb-2" required>
-        <input type="password" name="password" placeholder="Password" class="border p-2 w-full rounded mb-2" required>
-        <button class="w-full bg-blue-500 text-white p-2 rounded">Login / Signup</button>
+        <input type="text" name="username" placeholder="Username" class="border p-3 w-full rounded mb-3 focus:ring-2 focus:ring-pink-400" required>
+        <input type="password" name="password" placeholder="Password" class="border p-3 w-full rounded mb-3 focus:ring-2 focus:ring-purple-400" required>
+        <button class="w-full bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold p-3 rounded-lg shadow-lg hover:scale-105 transform transition">Login / Signup</button>
       </form>
 
     {% elif page == "home" %}
-      <h1 class="text-2xl font-bold mb-6">Welcome, {{ username }}</h1>
+      <h1 class="text-3xl font-extrabold mb-6 text-center text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-green-500">Welcome, {{ username }}</h1>
 
       <!-- Task Form -->
-      <form action="/add" method="post" class="grid grid-cols-1 md:grid-cols-6 gap-2 mb-4">
-        <input type="text" name="task" placeholder="Enter task" class="border p-2 rounded col-span-2" required>
+      <form action="/add" method="post" class="grid grid-cols-1 md:grid-cols-7 gap-2 mb-6">
+        <input type="text" name="task" placeholder="Enter task" class="border p-2 rounded col-span-2 focus:ring-2 focus:ring-green-400" required>
         <select name="priority" class="border p-2 rounded">
           <option>High</option><option selected>Medium</option><option>Low</option>
         </select>
@@ -30,50 +30,68 @@
         <select name="recurring" class="border p-2 rounded">
           <option>None</option><option>Daily</option><option>Weekly</option><option>Monthly</option>
         </select>
-        <input type="text" name="subtasks" placeholder="Subtasks (comma separated)" class="border p-2 rounded col-span-2">
-        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded">Add</button>
+        <input type="text" name="tags" placeholder="Tags (comma separated)" class="border p-2 rounded">
+        <input type="text" name="subtasks" placeholder="Subtasks (comma separated)" class="border p-2 rounded">
+        <button type="submit" class="bg-gradient-to-r from-blue-500 to-green-500 text-white font-bold px-4 py-2 rounded-lg shadow hover:scale-105 transform transition">Add</button>
       </form>
 
       <!-- Stats -->
       <div class="grid grid-cols-3 gap-4 mb-6 text-center">
-        <div class="p-4 bg-blue-100 rounded">
-          <p class="text-xl font-bold">{{ total }}</p>
+        <div class="p-4 bg-blue-100 rounded-lg shadow">
+          <p class="text-2xl font-bold">{{ total }}</p>
           <p class="text-sm">Total</p>
         </div>
-        <div class="p-4 bg-green-100 rounded">
-          <p class="text-xl font-bold">{{ completed }}</p>
+        <div class="p-4 bg-green-100 rounded-lg shadow">
+          <p class="text-2xl font-bold">{{ completed }}</p>
           <p class="text-sm">Completed</p>
         </div>
-        <div class="p-4 bg-red-100 rounded">
-          <p class="text-xl font-bold">{{ pending }}</p>
+        <div class="p-4 bg-red-100 rounded-lg shadow">
+          <p class="text-2xl font-bold">{{ pending }}</p>
           <p class="text-sm">Pending</p>
         </div>
       </div>
 
+      <!-- Tag Filters -->
+      {% if all_tags %}
+      <div class="flex flex-wrap gap-2 mb-6">
+        <a href="/" class="px-3 py-1 rounded-full text-sm {% if not active_tag %}bg-purple-600 text-white{% else %}bg-gray-200{% endif %}">All</a>
+        {% for tag in all_tags %}
+          <a href="/?tag={{ tag }}" class="px-3 py-1 rounded-full text-sm {% if active_tag == tag %}bg-purple-600 text-white{% else %}bg-gray-200{% endif %} hover:bg-purple-300 transition">{{ tag }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
       <!-- Tabs -->
       <div class="flex gap-4 mb-6">
-        <button onclick="showTab('list')" class="px-4 py-2 bg-gray-200 rounded">📝 List</button>
-        <button onclick="showTab('calendar')" class="px-4 py-2 bg-gray-200 rounded">📅 Calendar</button>
+        <button onclick="showTab('list')" class="px-4 py-2 bg-gray-200 rounded-lg shadow hover:bg-gray-300 transition">📝 List</button>
+        <button onclick="showTab('calendar')" class="px-4 py-2 bg-gray-200 rounded-lg shadow hover:bg-gray-300 transition">📅 Calendar</button>
       </div>
 
       <!-- Task List -->
       <div id="list-tab">
         <ul class="space-y-3">
           {% for task in tasks %}
-          <li class="p-3 rounded bg-gray-50">
+          <li class="p-3 rounded-lg bg-gray-50 shadow hover:shadow-md transition">
             <div class="flex justify-between items-center">
               <div>
                 <form action="/toggle/{{ task.id }}" method="post" class="inline">
                   <input type="checkbox" onchange="this.form.submit()" {% if task.done %}checked{% endif %}>
-                  <span class="{% if task.done %}line-through text-gray-500{% endif %}">
+                  <span class="{% if task.done %}line-through text-gray-500{% endif %} font-medium">
                     {{ task.text }} {% if task.due_date %} (Due: {{ task.due_date }}){% endif %}
                   </span>
                 </form>
               </div>
               <div class="flex gap-2 items-center">
                 <span class="text-sm text-gray-500">{{ task.priority }} | {{ task.category }}</span>
+                {% if task.tags %}
+                  <div class="flex gap-1">
+                    {% for tag in task.tags %}
+                      <span class="px-2 py-1 text-xs bg-gradient-to-r from-yellow-400 to-pink-400 rounded-full text-white font-bold">{{ tag }}</span>
+                    {% endfor %}
+                  </div>
+                {% endif %}
                 <form action="/delete/{{ task.id }}" method="post">
-                  <button class="text-red-500 hover:text-red-700">🗑️</button>
+                  <button class="text-red-500 hover:text-red-700 transform hover:scale-110">🗑️</button>
                 </form>
               </div>
             </div>
@@ -90,6 +108,12 @@
               {% endfor %}
             </ul>
             {% endif %}
+
+            <!-- Add Subtask -->
+            <form action="/add-subtask/{{ task.id }}" method="post" class="mt-2 flex gap-2">
+              <input type="text" name="subtask" placeholder="Add subtask..." class="border p-1 rounded w-full focus:ring-2 focus:ring-purple-400">
+              <button class="bg-gradient-to-r from-green-400 to-blue-500 text-white px-2 py-1 rounded-lg shadow hover:scale-105 transform transition">+</button>
+            </form>
           </li>
           {% endfor %}
         </ul>
@@ -101,7 +125,7 @@
       </div>
 
       <form action="/logout" method="post" class="mt-6">
-        <button class="w-full bg-red-500 text-white p-2 rounded">Logout</button>
+        <button class="w-full bg-gradient-to-r from-red-500 to-pink-500 text-white font-bold p-3 rounded-lg shadow hover:scale-105 transform transition">Logout</button>
       </form>
     {% endif %}
   </div>
@@ -112,14 +136,16 @@
       document.getElementById("calendar-tab").classList.add("hidden");
       document.getElementById(tab + "-tab").classList.remove("hidden");
 
-      if (tab === "calendar" && !window.calendarLoaded) {
+      if (tab === "calendar") {
         var calendarEl = document.getElementById("calendar");
-        var calendar = new FullCalendar.Calendar(calendarEl, {
-          initialView: "dayGridMonth",
-          events: "/events"
-        });
-        calendar.render();
-        window.calendarLoaded = true;
+        if (!window.calendarLoaded) {
+          var calendar = new FullCalendar.Calendar(calendarEl, {
+            initialView: "dayGridMonth",
+            events: "/events"
+          });
+          calendar.render();
+          window.calendarLoaded = true;
+        }
       }
     }
   </script>
