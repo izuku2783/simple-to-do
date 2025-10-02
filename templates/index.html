@@ -3,12 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <title>Ultimate To-Do App</title>
+
+  <!-- Tailwind (CDN compiled) -->
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.js"></script>
+
+  <style>
+    /* small extra styling for the custom calendar & modal */
+    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+    .calendar-cell { min-height: 100px; border-radius: 8px; padding: 8px; background: linear-gradient(180deg, #fff, #f7fafc); box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+    .calendar-day-number { font-weight: 600; color: #374151; }
+    .event-badge { display:inline-block; padding:4px 6px; border-radius:12px; font-size:12px; color:white; margin:2px 0; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:50; }
+    .modal { width: 90%; max-width: 720px; background:white; border-radius:12px; padding:16px; }
+    .tag-pill { padding:4px 8px; border-radius:999px; font-size:12px; color: #fff; font-weight:600; }
+  </style>
 </head>
 <body class="bg-gradient-to-r from-purple-500 via-pink-500 to-yellow-500 min-h-screen flex items-center justify-center p-6">
-  <div class="w-full max-w-5xl bg-white shadow-2xl rounded-xl p-6">
+  <div class="w-full max-w-6xl bg-white shadow-2xl rounded-xl p-6">
     {% if page == "login" %}
       <h1 class="text-3xl font-extrabold mb-6 text-center text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-600">🔐 Login</h1>
       <form action="/login" method="post" class="mb-4">
@@ -18,9 +29,14 @@
       </form>
 
     {% elif page == "home" %}
-      <h1 class="text-3xl font-extrabold mb-6 text-center text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-green-500">Welcome, {{ username }}</h1>
+      <div class="flex items-center justify-between mb-6">
+        <h1 class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-green-500">Welcome, {{ username }}</h1>
+        <form action="/logout" method="post">
+          <button class="bg-gradient-to-r from-red-500 to-pink-500 text-white font-bold p-2 rounded-lg shadow hover:scale-105 transform transition">Logout</button>
+        </form>
+      </div>
 
-      <!-- Task Form -->
+      <!-- Add Task -->
       <form action="/add" method="post" class="grid grid-cols-1 md:grid-cols-7 gap-2 mb-6">
         <input type="text" name="task" placeholder="Enter task" class="border p-2 rounded col-span-2 focus:ring-2 focus:ring-green-400" required>
         <select name="priority" class="border p-2 rounded">
@@ -67,26 +83,27 @@
         <button onclick="showTab('calendar')" class="px-4 py-2 bg-gray-200 rounded-lg shadow hover:bg-gray-300 transition">📅 Calendar</button>
       </div>
 
-      <!-- Task List -->
+      <!-- LIST TAB -->
       <div id="list-tab">
-        <ul class="space-y-3">
+        <ul class="space-y-3 mb-6">
           {% for task in tasks %}
           <li class="p-3 rounded-lg bg-gray-50 shadow hover:shadow-md transition">
             <div class="flex justify-between items-center">
               <div>
                 <form action="/toggle/{{ task.id }}" method="post" class="inline">
                   <input type="checkbox" onchange="this.form.submit()" {% if task.done %}checked{% endif %}>
-                  <span class="{% if task.done %}line-through text-gray-500{% endif %} font-medium">
+                  <span class="{% if task.done %}line-through text-gray-500{% endif %} font-medium ml-2">
                     {{ task.text }} {% if task.due_date %} (Due: {{ task.due_date }}){% endif %}
                   </span>
                 </form>
+                <div class="text-xs text-gray-500 mt-1">{{ task.priority }} • {{ task.category }}</div>
               </div>
+
               <div class="flex gap-2 items-center">
-                <span class="text-sm text-gray-500">{{ task.priority }} | {{ task.category }}</span>
                 {% if task.tags %}
                   <div class="flex gap-1">
                     {% for tag in task.tags %}
-                      <span class="px-2 py-1 text-xs bg-gradient-to-r from-yellow-400 to-pink-400 rounded-full text-white font-bold">{{ tag }}</span>
+                      <span class="tag-pill" style="background: linear-gradient(90deg,#f59e0b,#ec4899)">{{ tag }}</span>
                     {% endfor %}
                   </div>
                 {% endif %}
@@ -97,56 +114,338 @@
             </div>
 
             {% if task.subtasks %}
-            <ul class="ml-6 mt-2 text-sm text-gray-700">
+            <ul class="ml-6 mt-3 text-sm text-gray-700">
               {% for sub in task.subtasks %}
-              <li>
+              <li class="flex items-center gap-2">
                 <form action="/toggle-sub/{{ task.id }}/{{ loop.index0 }}" method="post" class="inline">
                   <input type="checkbox" onchange="this.form.submit()" {% if sub.done %}checked{% endif %}>
-                  <span class="{% if sub.done %}line-through text-gray-400{% endif %}">{{ sub.text }}</span>
                 </form>
+                <span class="{% if sub.done %}line-through text-gray-400{% endif %}">{{ sub.text }}</span>
               </li>
               {% endfor %}
             </ul>
             {% endif %}
 
-            <!-- Add Subtask -->
-            <form action="/add-subtask/{{ task.id }}" method="post" class="mt-2 flex gap-2">
-              <input type="text" name="subtask" placeholder="Add subtask..." class="border p-1 rounded w-full focus:ring-2 focus:ring-purple-400">
-              <button class="bg-gradient-to-r from-green-400 to-blue-500 text-white px-2 py-1 rounded-lg shadow hover:scale-105 transform transition">+</button>
+            <!-- Add Subtask inline -->
+            <form action="/add-subtask/{{ task.id }}" method="post" class="mt-3 flex gap-2">
+              <input type="text" name="subtask" placeholder="Add subtask..." class="border p-1 rounded w-full">
+              <button class="bg-gradient-to-r from-green-400 to-blue-500 text-white px-3 py-1 rounded-lg">Add</button>
             </form>
           </li>
           {% endfor %}
         </ul>
       </div>
 
-      <!-- Calendar View -->
+      <!-- CALENDAR TAB -->
       <div id="calendar-tab" class="hidden">
-        <div id="calendar"></div>
+        <div class="mb-3 flex items-center justify-between">
+          <div class="text-lg font-semibold">Calendar</div>
+          <div class="flex gap-2 items-center">
+            <button id="prev-month" class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300">Prev</button>
+            <div id="calendar-title" class="px-4 font-medium"></div>
+            <button id="next-month" class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300">Next</button>
+          </div>
+        </div>
+
+        <div id="calendar-root" class="calendar-grid mb-6"></div>
+        <div class="text-sm text-gray-600">Click a date to see tasks for that date</div>
       </div>
 
-      <form action="/logout" method="post" class="mt-6">
-        <button class="w-full bg-gradient-to-r from-red-500 to-pink-500 text-white font-bold p-3 rounded-lg shadow hover:scale-105 transform transition">Logout</button>
-      </form>
     {% endif %}
   </div>
 
+  <!-- Modal container -->
+  <div id="modal-root" style="display:none;"></div>
+
   <script>
-  function showTab(tab) {
-    document.getElementById("list-tab").classList.add("hidden");
-    document.getElementById("calendar-tab").classList.add("hidden");
-    document.getElementById(tab + "-tab").classList.remove("hidden");
+    // TAG passed from server
+    const ACTIVE_TAG = "{{ active_tag }}";
 
-    if (tab === "calendar") {
-      var calendarEl = document.getElementById("calendar");
-      calendarEl.innerHTML = ""; // clear previous render
-      var calendar = new FullCalendar.Calendar(calendarEl, {
-        initialView: "dayGridMonth",
-        events: "/events"
-      });
-      calendar.render();
+    // showTab logic: when calendar is shown, render it (custom implementation)
+    function showTab(tab) {
+      document.getElementById("list-tab").classList.add("hidden");
+      document.getElementById("calendar-tab").classList.add("hidden");
+      document.getElementById(tab + "-tab").classList.remove("hidden");
+
+      if (tab === "calendar") {
+        renderCalendarUI();
+      }
     }
-  }
-</script>
 
+    // format date helpers
+    function pad(n){ return n<10? '0'+n : ''+n; }
+    function isoDateStr(year,month,day){ return `${year}-${pad(month)}-${pad(day)}`; }
+
+    // fetch events from backend (respects ACTIVE_TAG if set)
+    async function fetchEvents() {
+      let url = '/events';
+      if (ACTIVE_TAG) url += '?tag=' + encodeURIComponent(ACTIVE_TAG);
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      return await res.json();
+    }
+
+    // Render month calendar
+    async function renderCalendarUI() {
+      const root = document.getElementById('calendar-root');
+      root.innerHTML = ''; // clear
+      // Basic month state (use today)
+      if (!window._calState) {
+        const now = new Date();
+        window._calState = { year: now.getFullYear(), month: now.getMonth() }; // month: 0-11
+      }
+      const state = window._calState;
+
+      // nav
+      document.getElementById('calendar-title').textContent =
+        new Date(state.year, state.month, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' });
+
+      document.getElementById('prev-month').onclick = () => {
+        state.month--;
+        if (state.month < 0) { state.month = 11; state.year--; }
+        renderCalendarUI();
+      };
+      document.getElementById('next-month').onclick = () => {
+        state.month++;
+        if (state.month > 11) { state.month = 0; state.year++; }
+        renderCalendarUI();
+      };
+
+      // fetch events and group by date
+      const events = await fetchEvents();
+      const groups = {}; // dateStr -> [events]
+      events.forEach(ev => {
+        // normalize start to YYYY-MM-DD
+        let d = ev.start;
+        if (d.includes('T')) d = d.split('T')[0];
+        groups[d] = groups[d] || [];
+        groups[d].push(ev);
+      });
+
+      // render header for weekdays
+      const weekdayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      weekdayNames.forEach(w => {
+        const hd = document.createElement('div');
+        hd.className = 'text-sm font-medium text-gray-600';
+        hd.style.textAlign = 'center';
+        hd.textContent = w;
+        root.appendChild(hd);
+      });
+
+      // compute first day & number of days
+      const firstDay = new Date(state.year, state.month, 1).getDay(); // 0-6 (Sun-Sat)
+      const daysInMonth = new Date(state.year, state.month + 1, 0).getDate();
+
+      // fill blanks before first day
+      for (let i = 0; i < firstDay; i++) {
+        const blank = document.createElement('div');
+        blank.className = 'calendar-cell';
+        blank.style.background = 'transparent';
+        blank.style.boxShadow = 'none';
+        root.appendChild(blank);
+      }
+
+      // render each day
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = isoDateStr(state.year, state.month+1, day); // YYYY-MM-DD
+        const cell = document.createElement('div');
+        cell.className = 'calendar-cell';
+        // day header
+        const hd = document.createElement('div');
+        hd.className = 'calendar-day-number';
+        hd.textContent = day;
+        cell.appendChild(hd);
+
+        // events badges
+        const evs = groups[dateStr] || [];
+        const evContainer = document.createElement('div');
+        evContainer.style.marginTop = '8px';
+
+        evs.slice(0,3).forEach(e => {
+          const b = document.createElement('div');
+          b.className = 'event-badge';
+          b.style.background = e.color || '#2563eb';
+          b.textContent = e.title.length > 18 ? e.title.slice(0,16) + '…' : e.title;
+          evContainer.appendChild(b);
+        });
+
+        if (evs.length > 3) {
+          const more = document.createElement('div');
+          more.className = 'text-xs text-gray-500 mt-1';
+          more.textContent = `+${evs.length - 3} more`;
+          evContainer.appendChild(more);
+        }
+
+        cell.appendChild(evContainer);
+
+        // click opens modal with detailed tasks
+        cell.style.cursor = 'pointer';
+        cell.onclick = () => openDateModal(dateStr, evs);
+
+        root.appendChild(cell);
+      }
+
+      // fill trailing blanks so grid keeps full weeks (optional)
+      const totalCells = firstDay + daysInMonth;
+      const trailing = (7 - (totalCells % 7)) % 7;
+      for (let i = 0; i < trailing; i++) {
+        const blank = document.createElement('div');
+        blank.className = 'calendar-cell';
+        blank.style.background = 'transparent';
+        blank.style.boxShadow = 'none';
+        root.appendChild(blank);
+      }
+    }
+
+    // open modal showing tasks for a given date (evs is array of {id,title,start,...})
+    async function openDateModal(dateStr, evs) {
+      const modalRoot = document.getElementById('modal-root');
+      modalRoot.style.display = 'block';
+      modalRoot.innerHTML = '';
+
+      const backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop';
+      backdrop.onclick = (e) => { if (e.target === backdrop) closeModal(); };
+
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+
+      const title = document.createElement('div');
+      title.className = 'flex justify-between items-center mb-3';
+      title.innerHTML = `<div class="text-lg font-semibold">Tasks on ${dateStr}</div><button id="closeModal" class="px-2 py-1 bg-gray-200 rounded">Close</button>`;
+      modal.appendChild(title);
+      modal.querySelector('#closeModal').onclick = closeModal;
+
+      const list = document.createElement('div');
+      list.className = 'space-y-3';
+
+      // if no events, show placeholder and allow quick add
+      if (!evs || evs.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'text-sm text-gray-600 mb-2';
+        empty.textContent = 'No tasks for this date. Add one quickly:';
+        list.appendChild(empty);
+
+        const addForm = document.createElement('form');
+        addForm.action = '/add';
+        addForm.method = 'post';
+        addForm.innerHTML = `
+          <input type="hidden" name="due_date" value="${dateStr}">
+          <div class="flex gap-2">
+            <input name="task" required placeholder="Task title" class="border p-2 rounded w-full">
+            <button class="bg-gradient-to-r from-blue-500 to-green-500 text-white px-4 py-2 rounded">Add</button>
+          </div>`;
+        list.appendChild(addForm);
+      } else {
+        // for each event fetch full task details (so we can show subtasks & actions)
+        for (const ev of evs) {
+          // fetch /task/{id}
+          try {
+            const res = await fetch('/task/' + encodeURIComponent(ev.id));
+            if (!res.ok) continue;
+            const task = await res.json();
+
+            const item = document.createElement('div');
+            item.className = 'p-3 border rounded';
+
+            // header with title and actions
+            const header = document.createElement('div');
+            header.className = 'flex justify-between items-center';
+            header.innerHTML = `
+              <div>
+                <strong ${task.done ? 'style="text-decoration: line-through; color: #6b7280;"' : ''}>${escapeHtml(task.text)}</strong>
+                <div class="text-xs text-gray-500">${task.priority} • ${task.category}</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <form action="/toggle/${task.id}" method="post" style="display:inline">
+                  <button class="px-2 py-1 bg-green-100 rounded">Toggle</button>
+                </form>
+                <form action="/delete/${task.id}" method="post" style="display:inline">
+                  <button class="px-2 py-1 bg-red-100 rounded">Delete</button>
+                </form>
+              </div>`;
+            item.appendChild(header);
+
+            // tags
+            if (task.tags && task.tags.length) {
+              const tagRow = document.createElement('div');
+              tagRow.className = 'mt-2 flex gap-1';
+              task.tags.forEach(tg => {
+                const pill = document.createElement('span');
+                pill.className = 'px-2 py-1 text-xs rounded-full';
+                pill.style.background = 'linear-gradient(90deg,#f59e0b,#ec4899)';
+                pill.style.color = 'white';
+                pill.textContent = tg;
+                tagRow.appendChild(pill);
+              });
+              item.appendChild(tagRow);
+            }
+
+            // subtasks (with toggle)
+            if (task.subtasks && task.subtasks.length) {
+              const subUl = document.createElement('ul');
+              subUl.className = 'mt-2 space-y-1 text-sm';
+              task.subtasks.forEach((s, idx) => {
+                const li = document.createElement('li');
+                li.innerHTML = `
+                  <form action="/toggle-sub/${task.id}/${idx}" method="post" style="display:inline">
+                    <input type="checkbox" ${s.done ? 'checked' : ''} onchange="this.form.submit()">
+                    <span ${s.done ? 'style="text-decoration: line-through; color:#9CA3AF;"' : ''}> ${escapeHtml(s.text)}</span>
+                  </form>`;
+                subUl.appendChild(li);
+              });
+              item.appendChild(subUl);
+            }
+
+            // add subtask inline
+            const addSubForm = document.createElement('form');
+            addSubForm.action = '/add-subtask/' + encodeURIComponent(task.id);
+            addSubForm.method = 'post';
+            addSubForm.className = 'mt-3 flex gap-2';
+            addSubForm.innerHTML = `<input name="subtask" placeholder="New subtask" class="border p-1 rounded w-full">
+                                    <button class="bg-gradient-to-r from-green-400 to-blue-500 text-white px-3 py-1 rounded">+ Subtask</button>`;
+            item.appendChild(addSubForm);
+
+            list.appendChild(item);
+          } catch (err) {
+            console.error('Could not load task', err);
+          }
+        } // end for evs
+      }
+
+      modal.appendChild(list);
+      backdrop.appendChild(modal);
+      modalRoot.appendChild(backdrop);
+      // show
+      modalRoot.style.display = 'block';
+      // close function
+      function closeModal() {
+        modalRoot.style.display = 'none';
+        modalRoot.innerHTML = '';
+      }
+      window.closeModal = closeModal; // for outside access
+    }
+
+    function closeModal() {
+      const modalRoot = document.getElementById('modal-root');
+      modalRoot.style.display = 'none';
+      modalRoot.innerHTML = '';
+    }
+
+    // escape HTML helper
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"'`=\/]/g, function(s) {
+        return ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;',
+          "'": '&#39;', '/': '&#x2F;', '`': '&#x60;', '=': '&#x3D;'
+        })[s];
+      });
+    }
+
+    // initialize to list view on load
+    window.addEventListener('DOMContentLoaded', () => {
+      showTab('list');
+    });
+  </script>
 </body>
 </html>
