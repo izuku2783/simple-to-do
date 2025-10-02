@@ -2,7 +2,8 @@ fastapi
 uvicorn
 motor
 jinja2
-pandas
-openpyxl
-reportlab
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
 python-multipart
