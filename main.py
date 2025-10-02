@@ -8,40 +8,18 @@ from fastapi import FastAPI, Form, Request, Response, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from google_auth_oauthlib.flow import Flow
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
 from passlib.context import CryptContext
 
-# --- Step 1: Configure Logging ---
-# This sets up a logger that will print detailed messages to the console.
+# Basic Logging Configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-logger.info("Application startup sequence initiated.")
+# Environment Variable Loading
+SECRET_KEY = os.environ.get("SECRET_KEY")
+MONGO_URI = os.environ.get("MONGO_URI")
 
-# --- Step 2: Environment Variable Loading & Validation ---
-try:
-    logger.info("Loading SECRET_KEY...")
-    SECRET_KEY = os.environ["SECRET_KEY"]
-    logger.info("SECRET_KEY loaded successfully.")
-
-    logger.info("Loading MONGO_URI...")
-    MONGO_URI = os.environ["MONGO_URI"]
-    logger.info("MONGO_URI loaded successfully.")
-
-    logger.info("Loading GOOGLE_CREDENTIALS...")
-    GOOGLE_CREDENTIALS = os.environ["GOOGLE_CREDENTIALS"]
-    # Validate that GOOGLE_CREDENTIALS is valid JSON
-    json.loads(GOOGLE_CREDENTIALS)
-    logger.info("GOOGLE_CREDENTIALS loaded and validated as JSON successfully.")
-
-except KeyError as e:
-    logger.critical(f"CRITICAL ERROR: Environment variable {e} is not set. Application cannot start.")
-    raise
-except json.JSONDecodeError as e:
-    logger.critical(f"CRITICAL ERROR: GOOGLE_CREDENTIALS is not valid JSON. Error: {e}. Application cannot start.")
-    raise
+if not SECRET_KEY or not MONGO_URI:
+    raise RuntimeError("Missing SECRET_KEY or MONGO_URI env vars.")
 
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
@@ -50,59 +28,17 @@ templates = Jinja2Templates(directory="templates")
 # Password Hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# --- Step 3: MongoDB Connection ---
-db = None
+# MongoDB Connection
 try:
-    logger.info("Attempting to connect to MongoDB...")
     client = AsyncIOMotorClient(MONGO_URI)
-    # The ismaster command is cheap and does not require auth. It's a quick way to check server availability.
-    client.admin.command('ismaster')
     db = client["todo_app"]
     users_collection = db["users"]
     tasks_collection = db["tasks"]
     projects_collection = db["projects"]
-    logger.info("MongoDB connection successful. Collections are ready.")
+    logger.info("MongoDB connection successful.")
 except Exception as e:
     logger.critical(f"CRITICAL ERROR: Failed to connect to MongoDB. Error: {e}")
-    # We raise the exception to ensure the app stops if the DB is unavailable.
     raise
-    
-# ✅ Health Check Endpoint for Render
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
-# (The rest of your application code remains the same)
-# ✅ Google OAuth
-SCOPES = [
-    "https://www.googleapis.com/auth/calendar.events",
-    "openid", "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile"
-]
-REDIRECT_PATH = "/auth/callback"
-
-def get_google_flow(request: Request):
-    creds_data = json.loads(GOOGLE_CREDENTIALS)
-    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
-    redirect_uri = f"{scheme}://{request.url.netloc}{REDIRECT_PATH}"
-    return Flow.from_client_config(
-        creds_data,
-        scopes=SCOPES,
-        redirect_uri=redirect_uri
-    )
-
-# 🔑 Token helpers
-async def save_token(user_id, creds):
-    await users_collection.update_one(
-        {"_id": user_id},
-        {"$set": {"google_creds": json.loads(creds.to_json())}},
-        upsert=True
-    )
-
-async def load_token(user_id):
-    user = await users_collection.find_one({"_id": user_id})
-    if user and "google_creds" in user:
-        return Credentials.from_authorized_user_info(user["google_creds"])
-    return None
 
 def get_current_user(request: Request):
     return request.cookies.get("username")
@@ -114,40 +50,10 @@ async def current_user(request: Request):
         return None
     return await users_collection.find_one({"_id": username})
 
-# ✅ Google Login
-@app.get("/login-google")
-async def login_google(request: Request):
-    flow = get_google_flow(request)
-    auth_url, state = flow.authorization_url(access_type="offline", include_granted_scopes="true")
-    request.session['state'] = state
-    return RedirectResponse(auth_url)
-
-@app.get(REDIRECT_PATH)
-async def auth_callback(request: Request):
-    state = request.session.pop('state', '')
-    if state != request.query_params.get('state'):
-        return HTMLResponse("<h3>State mismatch. Please try again.</h3>", status_code=400)
-
-    flow = get_google_flow(request)
-    flow.fetch_token(code=request.query_params.get('code'))
-    creds = flow.credentials
-
-    service = build("oauth2", "v2", credentials=creds)
-    user_info = service.userinfo().get().execute()
-    email = user_info["email"]
-
-    await save_token(email, creds)
-    # Check if user exists, if not create with default settings
-    user = await users_collection.find_one({"_id": email})
-    if not user:
-        await users_collection.insert_one({
-            "_id": email,
-            "settings": {"default_priority": "Medium", "theme": "light"},
-        })
-
-    response = RedirectResponse("/")
-    response.set_cookie("username", email)
-    return response
+# Health Check Endpoint for Render
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
 
 # ✅ Username/Password Login
 @app.post("/login")
@@ -162,7 +68,7 @@ async def login(response: Response, username: str = Form(...), password: str = F
             "settings": {"default_priority": "Medium", "theme": "light"},
         })
     elif not user.get("password") or not pwd_context.verify(password, user["password"]):
-        return HTMLResponse("<h3>Invalid password</h3>", status_code=401)
+        return HTMLResponse("<h3>Invalid username or password</h3><a href='/'>Try again</a>", status_code=401)
 
     resp = RedirectResponse("/", status_code=302)
     resp.set_cookie("username", username)
@@ -219,7 +125,6 @@ async def get_events(request: Request, user: dict = Depends(current_user)):
         return JSONResponse([])
 
     events = []
-
     tasks_cursor = tasks_collection.find({"owner": user["_id"]})
     async for t in tasks_cursor:
         if t.get("due_date"):
@@ -228,29 +133,6 @@ async def get_events(request: Request, user: dict = Depends(current_user)):
                 "start": t["due_date"],
                 "color": "#2563eb" if not t["done"] else "#9ca3af"
             })
-
-    creds = await load_token(user["_id"])
-    if creds:
-        try:
-            service = build("calendar", "v3", credentials=creds)
-            events_result = service.events().list(
-                calendarId="primary",
-                timeMin=datetime.utcnow().isoformat() + "Z",
-                maxResults=50,
-                singleEvents=True,
-                orderBy="startTime"
-            ).execute()
-            for e in events_result.get("items", []):
-                start = e["start"].get("date", e["start"].get("dateTime"))
-                if start:
-                    events.append({
-                        "title": e.get("summary", "Google Event"),
-                        "start": start,
-                        "color": "#16a34a"
-                    })
-        except Exception as e:
-            logger.error(f"Error fetching Google Calendar events: {e}")
-
     return JSONResponse(events)
 
 # ✅ Add Task
@@ -282,25 +164,7 @@ async def add_task(request: Request, task: str = Form(...), priority: str = Form
             "action": "Task created"
         }]
     }
-    result = await tasks_collection.insert_one(new_task)
-
-    creds = await load_token(user["_id"])
-    if creds and due_date:
-        try:
-            service = build("calendar", "v3", credentials=creds)
-            event = {
-                "summary": task,
-                "description": f"Priority: {priority}\nCategory: {category}\nSubtasks: {', '.join([s['text'] for s in subtasks_list])}",
-                "start": {"date": due_date},
-                "end": {"date": due_date},
-            }
-            if recurring != "None":
-                freq = recurring.upper()
-                event["recurrence"] = [f"RRULE:FREQ={freq}"]
-            service.events().insert(calendarId="primary", body=event).execute()
-        except Exception as e:
-            logger.error(f"Error creating Google Calendar event: {e}")
-
+    await tasks_collection.insert_one(new_task)
     return RedirectResponse(f"/?project_id={project_id}" if project_id else "/", status_code=302)
 
 # ✅ Toggle Task Completion
@@ -325,7 +189,6 @@ async def toggle_task(task_id: str, user: dict = Depends(current_user)):
     project_id = task.get("project_id")
     return RedirectResponse(f"/?project_id={project_id}" if project_id else "/", status_code=302)
 
-
 # ✅ Add Note to Task
 @app.post("/add_note/{task_id}")
 async def add_note(task_id: str, note: str = Form(...), user: dict = Depends(current_user)):
@@ -343,7 +206,6 @@ async def add_note(task_id: str, note: str = Form(...), user: dict = Depends(cur
     )
     project_id = task.get("project_id")
     return RedirectResponse(f"/?project_id={project_id}" if project_id else "/", status_code=302)
-
 
 # ✅ Project Management
 @app.post("/add_project")
@@ -366,6 +228,3 @@ async def update_settings(default_priority: str = Form(...), theme: str = Form(.
         {"$set": {"settings": {"default_priority": default_priority, "theme": theme}}}
     )
     return RedirectResponse("/", status_code=302)
-
-
-logger.info("Application startup sequence completed. Uvicorn is now running the app.")
