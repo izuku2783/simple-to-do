@@ -131,23 +131,22 @@
   </div>
 
   <script>
-    function showTab(tab) {
-      document.getElementById("list-tab").classList.add("hidden");
-      document.getElementById("calendar-tab").classList.add("hidden");
-      document.getElementById(tab + "-tab").classList.remove("hidden");
+  function showTab(tab) {
+    document.getElementById("list-tab").classList.add("hidden");
+    document.getElementById("calendar-tab").classList.add("hidden");
+    document.getElementById(tab + "-tab").classList.remove("hidden");
 
-      if (tab === "calendar") {
-        var calendarEl = document.getElementById("calendar");
-        if (!window.calendarLoaded) {
-          var calendar = new FullCalendar.Calendar(calendarEl, {
-            initialView: "dayGridMonth",
-            events: "/events"
-          });
-          calendar.render();
-          window.calendarLoaded = true;
-        }
-      }
+    if (tab === "calendar") {
+      var calendarEl = document.getElementById("calendar");
+      calendarEl.innerHTML = ""; // clear previous render
+      var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: "dayGridMonth",
+        events: "/events"
+      });
+      calendar.render();
     }
-  </script>
+  }
+</script>
+
 </body>
 </html>
